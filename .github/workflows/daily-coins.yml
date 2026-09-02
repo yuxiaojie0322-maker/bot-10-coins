@@ -24,5 +24,6 @@ jobs:
       - name: Run daily coins claimer
         env:
           BOT_HOSTING_TOKEN: ${{ secrets.BOT_HOSTING_TOKEN }}
+          NOPECHA_KEY: qifr6gi669wcvuj8iy30rq2j410wfjwm
         run: |
-          python daily_coins_simple.py
+          python daily_coins.py
