@@ -2,75 +2,27 @@ name: Bot-Hosting Daily Coins
 
 on:
   schedule:
-    # 每天UTC时间9点运行（北京时间17点）
     - cron: '0 9 * * *'
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   claim-coins:
     runs-on: ubuntu-latest
     steps:
-      - name: 领取Bot-Hosting每日金币
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
         run: |
-          TOKEN="${{ secrets.BOT_HOSTING_TOKEN }}"
-          
-          echo "=== 检查当前金币状态 ==="
-          STATUS=$(curl -s "https://legacy.bot-hosting.net/api/freeCoinsStatus" \
-            -H "Authorization: $TOKEN")
-          
-          COINS_CLAIMED=$(echo "$STATUS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('coinsClaimed', 0))")
-          CLAIMABLE=$(echo "$STATUS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('claimable', False))")
-          TOTAL_COINS=$(curl -s "https://legacy.bot-hosting.net/api/me" -H "Authorization: $TOKEN" | python3 -c "import json,sys; print(json.load(sys.stdin).get('coins', 0))")
-          
-          echo "💎 总硬币: $TOTAL_COINS"
-          echo "🪙 今日已领: $COINS_CLAIMED/10"
-          echo "⏰ 可领取: $CLAIMABLE"
-          echo ""
-          
-          if [ "$COINS_CLAIMED" -ge 10 ]; then
-            echo "✅ 今日金币已领满，跳过"
-            exit 0
-          fi
-          
-          if [ "$CLAIMABLE" = "False" ]; then
-            echo "⏳ 还在冷却中，跳过"
-            exit 0
-          fi
-          
-          echo "🎉 开始领取金币..."
-          
-          # 循环领取10个金币，每次间隔10秒
-          for i in $(seq 1 10); do
-            echo "领取第 $i/10 个金币..."
-            
-            RESULT=$(curl -s "https://legacy.bot-hosting.net/api/freeCoins" \
-              -X POST \
-              -H "Authorization: $TOKEN" \
-              -H "Content-Type: application/json" \
-              -d '{}')
-            
-            SUCCESS=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('success', False))" 2>/dev/null || echo "false")
-            
-            if [ "$SUCCESS" = "True" ]; then
-              echo "✅ 成功领取第 $i 个金币"
-            else
-              ERROR=$(echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('message', 'Unknown'))" 2>/dev/null || echo "Error")
-              echo "⚠️ 领取失败: $ERROR"
-              
-              # 如果是验证码错误，暂停久一点
-              if echo "$ERROR" | grep -qi "captcha"; then
-                echo "等待验证码冷却..."
-                sleep 30
-              fi
-            fi
-            
-            # 间隔10秒避免rate limit
-            sleep 10
-          done
-          
-          echo ""
-          echo "=== 领取完成 ==="
-          NEW_STATUS=$(curl -s "https://legacy.bot-hosting.net/api/freeCoinsStatus" -H "Authorization: $TOKEN")
-          NEW_CLAIMED=$(echo "$NEW_STATUS" | python3 -c "import json,sys; print(json.load(sys.stdin).get('coinsClaimed', 0))")
-          echo "🪙 今日已领: $NEW_CLAIMED/10"
-          echo "💎 总硬币: $(curl -s "https://legacy.bot-hosting.net/api/me" -H "Authorization: $TOKEN" | python3 -c "import json,sys; print(json.load(sys.stdin).get('coins', 0))")"
+          pip install requests
+
+      - name: Run daily coins claimer
+        env:
+          BOT_HOSTING_TOKEN: ${{ secrets.BOT_HOSTING_TOKEN }}
+        run: |
+          python daily_coins_simple.py
