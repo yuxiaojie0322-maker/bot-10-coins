@@ -83,40 +83,52 @@ def claim_coin_with_browser(browser, token):
         
         time.sleep(1)
         
-        # 点击按钮（用 JS 直接找按钮并点击）
-        try:
-            clicked = page.evaluate("""() => {
-                const btns = document.querySelectorAll('button, input[type="submit"]');
-                for (const btn of btns) {
-                    const text = (btn.textContent || btn.value || '').trim();
-                    if (text.includes('Complete') || text.includes('Claim') || 
-                        text.includes('claim') || text.includes('captcha') ||
-                        btn.classList.contains('btn-primary')) {
-                        if (!btn.disabled) {
+        # 提取验证码 token 并直接调 API 领取（比点按钮更可靠）
+        captcha_token = page.evaluate("""() => {
+            const tas = document.querySelectorAll('textarea[name="h-captcha-response"], textarea[name="g-recaptcha-response"]');
+            for (const ta of tas) {
+                if (ta.value && ta.value.trim().length > 20) return ta.value;
+            }
+            return null;
+        }""")
+        
+        if captcha_token:
+            log(f"   📤 提取到验证码 token ({len(captcha_token)} 字符)")
+            # 直接调 API 领取
+            resp = requests.post(
+                f"{API_URL}/freeCoins",
+                headers={"Authorization": token, "Content-Type": "application/json"},
+                json={"gRecaptchaResponse": captcha_token},
+                timeout=30,
+            )
+            try:
+                result = resp.json()
+                if result.get("success"):
+                    log(f"   ✅ API 领取成功: {result.get('message', '')}")
+                else:
+                    log(f"   ❌ API 返回: {result}")
+            except:
+                log(f"   ❌ API HTTP {resp.status_code}: {resp.text[:200]}")
+        else:
+            log("   ⚠️  未提取到验证码 token", "WARN")
+            # 回退：尝试点击按钮
+            try:
+                clicked = page.evaluate("""() => {
+                    const btns = document.querySelectorAll('button');
+                    for (const btn of btns) {
+                        const text = (btn.textContent || '').trim();
+                        if ((text.includes('Claim') || text.includes('claim') || text.includes('coin')) && !btn.disabled) {
                             btn.click();
                             return text;
                         }
                     }
-                }
-                // 如果没有找到特定按钮，点击第一个可用的按钮
-                for (const btn of btns) {
-                    if (!btn.disabled && btn.offsetParent !== null) {
-                        btn.click();
-                        return 'fallback: ' + (btn.textContent || '').trim().slice(0, 30);
-                    }
-                }
-                // 最后尝试提交表单
-                const form = document.querySelector('form');
-                if (form) { form.submit(); return 'form-submit'; }
-                return null;
-            }""")
-            if clicked:
-                log(f"   ✅ 已点击按钮: {clicked}")
-                time.sleep(3)
-            else:
-                log("   ⚠️  未找到可点击的按钮", "WARN")
-        except Exception as e:
-            log(f"   ⚠️  点击按钮失败: {e}", "WARN")
+                    return null;
+                }""")
+                if clicked:
+                    log(f"   ✅ 回退点击按钮: {clicked}")
+                    time.sleep(5)
+            except Exception as e:
+                log(f"   ⚠️  回退点击失败: {e}", "WARN")
     else:
         # 没有 captcha 按钮，尝试直接找领取按钮
         log("   🔍 未发现 captcha 按钮，查找其他领取按钮...")
