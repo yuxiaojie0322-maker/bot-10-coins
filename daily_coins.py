@@ -2,6 +2,7 @@
 """
 Bot-Hosting Daily Coins Claimer (Playwright + NopeCHA 扩展版)
 流程：打开页面 → NopeCHA 自动解题 → 点击按钮 → 等待15秒 → 继续点击直到领满
+在同一页面反复操作，不刷新页面（用户确认的操作节奏）
 """
 
 import os
@@ -19,7 +20,7 @@ EXT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 def log(msg, level="INFO"):
     from datetime import datetime
     t = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{t}] [{level}] {msg}")
+    print(f"[{t}] [{level}] {msg}", flush=True)
 
 
 def get_token():
@@ -58,19 +59,10 @@ def get_status(token):
     return {}
 
 
-def solve_captcha_and_click(page, token):
-    """在当前页面等待 NopeCHA 解题并点击领取按钮，返回是否点击成功"""
-    # 检查页面是否有领取按钮
-    page_text = page.locator("body").inner_text()
-    has_btn = "Complete the captcha to claim coins!" in page_text or "Click here to claim one free coin!" in page_text
-    
-    if not has_btn:
-        log("   ⚠️  页面上没有发现领取按钮", "WARN")
-        return False
-    
-    log("   🔐 等待 NopeCHA 自动解题（最多 120 秒）...")
-    solved = False
-    for i in range(120):
+def wait_captcha_solved(page, timeout=90):
+    """等待 NopeCHA 自动解题完成，返回是否成功"""
+    log("   🔐 等待 NopeCHA 自动解题...")
+    for i in range(timeout):
         time.sleep(1)
         try:
             solved = page.evaluate("""() => {
@@ -84,15 +76,15 @@ def solve_captcha_and_click(page, token):
             solved = False
         if solved:
             log(f"   ✅ 验证码已自动解决（耗时 {i+1} 秒）")
-            break
+            return True
         if i % 15 == 0 and i > 0:
             log(f"   ⏳ 仍在等待解题... ({i} 秒)")
-    else:
-        log("   ⚠️  验证码解题超时(120s)", "WARN")
-    
-    time.sleep(2)
-    
-    # 点击领取按钮
+    log(f"   ⚠️  验证码解题超时({timeout}s)", "WARN")
+    return False
+
+
+def click_claim_button(page):
+    """点击页面上的领取按钮，返回是否点击成功及按钮文本"""
     try:
         clicked = page.evaluate("""() => {
             const btns = document.querySelectorAll('button');
@@ -108,12 +100,12 @@ def solve_captcha_and_click(page, token):
         }""")
         if clicked:
             log(f"   ✅ 已点击按钮: {clicked}")
-            return True
+            return True, clicked
         log("   ⚠️  未找到可点击的领取按钮", "WARN")
-        return False
+        return False, None
     except Exception as e:
         log(f"   ⚠️  点击失败: {e}", "WARN")
-        return False
+        return False, None
 
 
 def main():
@@ -192,9 +184,9 @@ def main():
         except Exception as e:
             log(f"⚠️  打开页面失败: {e}", "WARN")
         
-        # 领取金币：解题→点按钮→等15秒→继续
+        # 领取金币：解题→点按钮→等15秒→继续点按钮
         success_count = 0
-        max_attempts = 15  # 最多尝试 15 次（含可能的失败重试）
+        max_attempts = 12  # 最多尝试 12 次
         
         for attempt in range(1, max_attempts + 1):
             # 检查是否已领满
@@ -202,25 +194,40 @@ def main():
             cur_claimed = status.get('coinsClaimed', 0)
             cur_coins = get_coins(token)
             
-            log(f"\n🎯 第 {attempt} 次尝试 | coinsClaimed={cur_claimed}, 总金币={cur_coins}")
+            log(f"\n🎯 第 {attempt} 次操作 | coinsClaimed={cur_claimed}, 总金币={cur_coins}")
             
-            # 判断成功标准：总金币比开始多了（每领一个 +1）
-            if cur_coins > coins_start:
-                log(f"✅ 金币已增加: {coins_start} → {cur_coins} (+{cur_coins - coins_start})")
-            
+            # 判断成功标准：总金币比开始多了 10 个则完成
             if cur_coins >= coins_start + 10:
-                log(f"🎉 已领取 10 个金币，任务完成！")
+                log(f"🎉 已领取 {cur_coins - coins_start} 个金币，任务完成！")
                 break
             
             if not status.get('claimable', False):
-                log("⏳ 服务器 claimable=false，冷却中，等待...")
+                log("⏳ 服务器 claimable=false，冷却中，等待 15 秒...")
                 time.sleep(15)
                 continue
             
-            # 解题并点击
-            clicked = solve_captcha_and_click(main_page, token)
+            # 检查页面是否有领取按钮
+            page_text = main_page.locator("body").inner_text()
+            has_btn = "Click here to claim one free coin!" in page_text or "Complete the captcha to claim coins!" in page_text
+            
+            if not has_btn:
+                log("   📄 页面没有领取按钮，刷新页面...")
+                try:
+                    main_page.goto(f"{BOT_HOSTING_URL}/panel/earn", wait_until="domcontentloaded", timeout=30000)
+                    time.sleep(3)
+                except Exception as e:
+                    log(f"   ⚠️  刷新失败: {e}", "WARN")
+                continue
+            
+            # 等待验证码解题（如果还没解）
+            wait_captcha_solved(main_page, timeout=90)
+            time.sleep(2)
+            
+            # 点击领取按钮
+            clicked, btn_text = click_claim_button(main_page)
             if not clicked:
-                log("   📄 按钮不可见，刷新页面重试...")
+                # 点击失败，尝试刷新后重试
+                log("   📄 点击失败，刷新页面重试...")
                 try:
                     main_page.goto(f"{BOT_HOSTING_URL}/panel/earn", wait_until="domcontentloaded", timeout=30000)
                     time.sleep(3)
@@ -237,8 +244,10 @@ def main():
             if new_coins > coins_start:
                 success_count = new_coins - coins_start
                 log(f"   📈 当前已成功领取: {success_count}/10 (总金币 {new_coins})")
+                # 领取成功，等待 15 秒后再继续（页面可能已刷新出新的验证码）
+                time.sleep(15)
             else:
-                log("   ⚠️  金币未增加，继续尝试")
+                log("   ⚠️  金币未增加，继续等待后重试")
         
         browser.close()
     
