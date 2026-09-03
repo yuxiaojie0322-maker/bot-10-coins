@@ -164,13 +164,9 @@ def main():
         
         log(f"📊 初始状态: 已领 {initial_claimed}/10, claimable={claimable}")
         
+        # 只要 claimable=True 就尝试领取（服务器可能允许领取新金币）
         if not claimable:
             log("⏳ 冷却中，跳过")
-            browser.close()
-            return
-        
-        if initial_claimed >= 10:
-            log("📊 今日已领满，跳过")
             browser.close()
             return
         
