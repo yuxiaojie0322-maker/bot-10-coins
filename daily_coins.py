@@ -36,32 +36,30 @@ def get_token():
     return ""
 
 
-def claim_coin_with_browser(browser, token):
-    """使用浏览器领取一个金币：注入token → 打开页面 → NopeCHA 自动解题 → 点击确认按钮 → 检查结果"""
-    page = browser.pages[0] if browser.pages else browser.new_page()
-    
+def claim_coin_with_browser(browser, page, token):
+    """使用浏览器领取一个金币：注入token → 打开页面 → NopeCHA 自动解题 → 点击确认按钮 → 等15秒 → 检查结果"""
     # 记录领取前的金币数
     headers = {"Authorization": token}
     resp_before = requests.get(f"{API_URL}/freeCoinsStatus", headers=headers, timeout=10)
     coins_before = resp_before.json().get('coinsClaimed', 0) if resp_before.status_code == 200 else 0
     
-    # 导航到领币页面（先注入 token 到 localStorage 实现网页认证）
-    log("   📄 打开领币页面...")
-    # 先打开域名根目录（避免直接访问 /panel/earn 被重定向到 /login）
-    page.goto(f"{BOT_HOSTING_URL}/", wait_until="domcontentloaded", timeout=30000)
-    # 注入 token 到 localStorage
-    page.evaluate(f"""() => {{ localStorage.setItem('token', '{token}'); }}""")
-    # 再导航到领币页面
-    page.goto(f"{BOT_HOSTING_URL}/panel/earn", wait_until="domcontentloaded", timeout=30000)
+    # 刷新页面以显示新的验证码
+    log("   📄 刷新领币页面...")
+    try:
+        page.goto(f"{BOT_HOSTING_URL}/panel/earn", wait_until="domcontentloaded", timeout=30000)
+    except Exception as e:
+        log(f"   ⚠️  页面刷新失败，尝试重新导航: {e}", "WARN")
+        page.goto(f"{BOT_HOSTING_URL}/", wait_until="domcontentloaded", timeout=30000)
+        page.evaluate(f"""() => {{ localStorage.setItem('token', '{token}'); }}""")
+        page.goto(f"{BOT_HOSTING_URL}/panel/earn", wait_until="domcontentloaded", timeout=30000)
     time.sleep(3)
     
     # 等待页面加载完成，检查是否有验证码
     page_text = page.locator("body").inner_text()
-    has_captcha_btn = "Complete the captcha to claim coins!" in page_text
+    has_captcha_btn = "Complete the captcha to claim coins!" in page_text or "Click here to claim one free coin!" in page_text
     
     if has_captcha_btn:
-        log("   🔐 发现 'Complete the captcha to claim coins!' 按钮")
-        log("   ⏳ 等待 NopeCHA 自动解题（最多 120 秒）...")
+        log("   🔐 发现领取按钮，等待 NopeCHA 自动解题（最多 120 秒）...")
         
         # 等待 NopeCHA 自动填充验证码 token
         for i in range(120):
@@ -104,8 +102,9 @@ def claim_coin_with_browser(browser, token):
         except Exception as e:
             log(f"   ⚠️  点击失败: {e}", "WARN")
         
-        # 等待 AJAX 完成
-        time.sleep(8)
+        # 等待 AJAX 完成（服务器处理 + 冷却，需等待 15 秒）
+        log("   ⏳ 等待 15 秒（服务器处理中）...")
+        time.sleep(15)
     else:
         # 没有 captcha 按钮，尝试直接找领取按钮
         log("   🔍 未发现 captcha 按钮，查找其他领取按钮...")
@@ -114,7 +113,7 @@ def claim_coin_with_browser(browser, token):
             if btn.is_visible(timeout=5000):
                 btn.click()
                 log("   ✅ 已点击领取按钮")
-                time.sleep(3)
+                time.sleep(15)
         except Exception:
             pass
     
@@ -195,6 +194,16 @@ def main():
             except Exception as e:
                 log(f"⚠️  NopeCHA 激活失败: {e}", "WARN")
         
+        # 主页面（用于领取金币）
+        main_page = browser.pages[0] if browser.pages else browser.new_page()
+        # 先打开域名根目录，注入 token 到 localStorage（避免 /panel/earn 被重定向到 /login）
+        try:
+            main_page.goto(f"{BOT_HOSTING_URL}/", wait_until="domcontentloaded", timeout=30000)
+            main_page.evaluate(f"""() => {{ localStorage.setItem('token', '{token}'); }}""")
+            log("✅ 网页认证已注入 (localStorage token)")
+        except Exception as e:
+            log(f"⚠️  注入 token 失败: {e}", "WARN")
+        
         # 获取初始状态
         headers = {"Authorization": token}
         resp = requests.get(f"{API_URL}/freeCoinsStatus", headers=headers, timeout=10)
@@ -222,10 +231,14 @@ def main():
             log(f"\n🎯 尝试第 {i} 个金币...")
             
             try:
-                success, msg = claim_coin_with_browser(browser, token)
+                success, msg = claim_coin_with_browser(browser, main_page, token)
                 if success:
                     log(f"✅ {msg}")
                     success_count += 1
+                    # 领取成功后，等待服务器冷却 15 秒再领下一个
+                    if i < 10:
+                        log("   ⏳ 等待 15 秒后领取下一个...")
+                        time.sleep(15)
                 else:
                     log(f"❌ {msg}")
                     if "captcha" in msg.lower() or "Must solve" in msg:
