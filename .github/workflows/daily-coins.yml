@@ -13,7 +13,7 @@ permissions:
 jobs:
   claim-coins:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -41,12 +41,12 @@ jobs:
           unzip -q -o nopecha.zip -d scripts/extensions/nopecha/unpacked
           echo "✅ 插件准备就绪"
 
-      - name: Run daily coins claimer
+      - name: Run daily coins claimer (Xvfb 虚拟屏幕)
         env:
           BOT_HOSTING_TOKEN: ${{ secrets.BOT_HOSTING_TOKEN }}
           NOPECHA_KEY: ${{ secrets.NOPECHA_KEY }}
         run: |
-          python daily_coins.py
+          xvfb-run --auto-servernum --server-args="-screen 0 1440x900x24" python daily_coins.py
 
       - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@v2

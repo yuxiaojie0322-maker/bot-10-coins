@@ -167,7 +167,7 @@ def main():
         user_data_dir = "/tmp/playwright-bot-hosting"
         browser = p.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
-            headless=True,
+            headless=False,
             args=launch_args,
             ignore_default_args=["--enable-automation"],
             viewport={"width": 1440, "height": 900},
