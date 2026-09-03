@@ -37,21 +37,30 @@ def get_token():
 
 
 def claim_coin_with_browser(browser, token):
-    """使用浏览器领取一个金币"""
+    """使用浏览器领取一个金币：打开页面 → NopeCHA 自动解题 → 点击确认按钮 → 检查结果"""
     page = browser.pages[0] if browser.pages else browser.new_page()
     
+    # 记录领取前的金币数
+    headers = {"Authorization": token}
+    resp_before = requests.get(f"{API_URL}/freeCoinsStatus", headers=headers, timeout=10)
+    coins_before = resp_before.json().get('coinsClaimed', 0) if resp_before.status_code == 200 else 0
+    
     # 导航到领币页面
+    log("   📄 打开领币页面...")
     page.goto(f"{BOT_HOSTING_URL}/panel/earn", wait_until="domcontentloaded", timeout=30000)
     time.sleep(3)
     
-    # 检查是否显示 "Complete the captcha to claim coins!"
+    # 等待页面加载完成，检查是否有验证码
     page_text = page.locator("body").inner_text()
-    if "Complete the captcha to claim coins!" in page_text:
-        log("   🔐 发现验证码确认按钮，等待 NopeCHA 自动解题...")
-        # 等待 NopeCHA 自动填充（最多 60 秒）
-        for i in range(60):
+    has_captcha_btn = "Complete the captcha to claim coins!" in page_text
+    
+    if has_captcha_btn:
+        log("   🔐 发现 'Complete the captcha to claim coins!' 按钮")
+        log("   ⏳ 等待 NopeCHA 自动解题（最多 120 秒）...")
+        
+        # 等待 NopeCHA 自动填充验证码 token
+        for i in range(120):
             time.sleep(1)
-            # 检查验证码是否已解决
             solved = page.evaluate("""() => {
                 const tas = document.querySelectorAll('textarea[name="h-captcha-response"], textarea[name="g-recaptcha-response"]');
                 for (const ta of tas) {
@@ -60,41 +69,60 @@ def claim_coin_with_browser(browser, token):
                 return false;
             }""")
             if solved:
-                log("   ✅ 验证码已自动解决")
+                log(f"   ✅ 验证码已自动解决（耗时 {i+1} 秒）")
                 break
+            if i % 10 == 0 and i > 0:
+                log(f"   ⏳ 仍在等待解题... ({i} 秒)")
         else:
-            log("   ⚠️  验证码解题超时", "WARN")
+            log("   ⚠️  验证码解题超时(120s)", "WARN")
         
-        # 查找并点击 "Complete the captcha to claim coins!" 按钮
+        time.sleep(1)
+        
+        # 点击 "Complete the captcha to claim coins!" 按钮
         try:
-            btn = page.locator("button:has-text('Complete the captcha to claim coins!'), button:has-text('Claim Coins'), button.btn-primary").first
+            btn = page.locator("button:has-text('Complete the captcha to claim coins!')").first
             if btn.is_visible(timeout=5000):
                 btn.click()
-                time.sleep(3)
                 log("   ✅ 已点击确认按钮")
+                time.sleep(3)
             else:
-                log("   ⚠️  未找到确认按钮", "WARN")
+                log("   ⚠️  按钮不可见", "WARN")
         except Exception as e:
             log(f"   ⚠️  点击按钮失败: {e}", "WARN")
+    else:
+        # 没有 captcha 按钮，尝试直接找领取按钮
+        log("   🔍 未发现 captcha 按钮，查找其他领取按钮...")
+        try:
+            btn = page.locator("button.btn-primary, button:has-text('Claim'), button:has-text('Earn')").first
+            if btn.is_visible(timeout=5000):
+                btn.click()
+                log("   ✅ 已点击领取按钮")
+                time.sleep(3)
+        except Exception:
+            pass
     
-    # 检查领取结果
+    # 检查领取结果：对比领取前后的 coinsClaimed 和总金币
     time.sleep(2)
-    page_text = page.locator("body").inner_text()
+    try:
+        resp_after = requests.get(f"{API_URL}/freeCoinsStatus", headers=headers, timeout=10)
+        if resp_after.status_code == 200:
+            status_after = resp_after.json()
+            coins_after = status_after.get('coinsClaimed', 0)
+            
+            resp_me = requests.get(f"{API_URL}/me", headers=headers, timeout=10)
+            total_coins = resp_me.json().get('coins', 0) if resp_me.status_code == 200 else 0
+            
+            if coins_after > coins_before:
+                return True, f"领取成功！coinsClaimed {coins_before}→{coins_after}, 总金币 {total_coins}"
+            else:
+                # 检查 claimable 是否变为 false（说明已领满或冷却）
+                if not status_after.get('claimable', True):
+                    return False, "服务器拒绝（claimable=false）"
+                return False, f"金币未增加（{coins_before}→{coins_after}），可能需要重新解题"
+    except Exception as e:
+        log(f"   ⚠️  检查结果异常: {e}", "WARN")
     
-    # 通过 API 验证是否成功
-    headers = {"Authorization": token}
-    resp = requests.get(f"{API_URL}/freeCoinsStatus", headers=headers, timeout=10)
-    if resp.status_code == 200:
-        status = resp.json()
-        coins_claimed = status.get('coinsClaimed', 0)
-        if coins_claimed > 0:
-            return True, f"成功领取 (已领 {coins_claimed}/10)"
-    
-    # 检查页面是否有成功消息
-    if "success" in page_text.lower() or "claimed" in page_text.lower():
-        return True, "领取成功"
-    
-    return False, page_text[:200] if page_text else "未知状态"
+    return False, "未能确认领取结果"
 
 
 def main():
@@ -161,18 +189,19 @@ def main():
         initial_status = resp.json()
         initial_claimed = initial_status.get('coinsClaimed', 0)
         claimable = initial_status.get('claimable', False)
+        captcha_required = initial_status.get('captcha', False)
         
-        log(f"📊 初始状态: 已领 {initial_claimed}/10, claimable={claimable}")
+        log(f"📊 初始状态: coinsClaimed={initial_claimed}, claimable={claimable}, captcha={captcha_required}")
         
-        # 只要 claimable=True 就尝试领取（服务器可能允许领取新金币）
+        # 只要 claimable=True 就尝试领取（coinsClaimed 可能是昨天的残留值）
         if not claimable:
             log("⏳ 冷却中，跳过")
             browser.close()
             return
         
-        # 领取金币
+        # 领取金币：最多尝试 10 次
         success_count = 0
-        for i in range(1, 11 - initial_claimed):
+        for i in range(1, 11):
             log(f"\n🎯 尝试第 {i} 个金币...")
             
             try:
@@ -182,7 +211,9 @@ def main():
                     success_count += 1
                 else:
                     log(f"❌ {msg}")
-                    break
+                    if "captcha" in msg.lower() or "Must solve" in msg:
+                        log("   ⏹ 服务器要求验证码，停止重试")
+                        break
             except Exception as e:
                 log(f"⚠️  异常: {e}", "WARN")
                 break
