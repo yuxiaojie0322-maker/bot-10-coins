@@ -164,13 +164,13 @@ def main():
         
         log(f"📊 初始状态: 已领 {initial_claimed}/10, claimable={claimable}")
         
-        if initial_claimed >= 10:
-            log("📊 今日已领满，跳过")
+        if not claimable:
+            log("⏳ 冷却中，跳过")
             browser.close()
             return
         
-        if not claimable:
-            log("⏳ 冷却中，跳过")
+        if initial_claimed >= 10:
+            log("📊 今日已领满，跳过")
             browser.close()
             return
         
