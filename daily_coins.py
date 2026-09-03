@@ -202,9 +202,8 @@ def main():
                 break
             
             if not status.get('claimable', False):
-                log("⏳ 服务器 claimable=false，冷却中，等待 15 秒...")
-                time.sleep(15)
-                continue
+                log("⏸ 服务器 claimable=false → 当日已领满 (You are on cooldown!)，退出")
+                break
             
             # 检查页面是否有领取按钮
             page_text = main_page.locator("body").inner_text()
