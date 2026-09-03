@@ -2,12 +2,19 @@ name: Bot-Hosting Daily Coins
 
 on:
   schedule:
-    - cron: '0 9 * * *'
+    # 北京时间每天早上 09:00 (UTC 01:00)
+    - cron: '0 1 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   claim-coins:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -17,13 +24,35 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
-          pip install requests
+          pip install requests playwright
+
+      - name: Install Playwright Chromium
+        run: |
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Download NopeCHA extension
+        run: |
+          echo "下载 NopeCHA 插件..."
+          mkdir -p scripts/extensions/nopecha/unpacked
+          curl -fLo nopecha.zip https://github.com/NopeCHALLC/nopecha-extension/releases/latest/download/chromium.zip
+          unzip -q -o nopecha.zip -d scripts/extensions/nopecha/unpacked
+          echo "✅ 插件准备就绪"
 
       - name: Run daily coins claimer
         env:
           BOT_HOSTING_TOKEN: ${{ secrets.BOT_HOSTING_TOKEN }}
-          NOPECHA_KEY: qifr6gi669wcvuj8iy30rq2j410wfjwm
+          NOPECHA_KEY: ${{ secrets.NOPECHA_KEY }}
         run: |
           python daily_coins.py
+
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        if: always()
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 1
