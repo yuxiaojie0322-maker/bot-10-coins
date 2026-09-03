@@ -37,7 +37,7 @@ def get_token():
 
 
 def claim_coin_with_browser(browser, token):
-    """使用浏览器领取一个金币：打开页面 → NopeCHA 自动解题 → 点击确认按钮 → 检查结果"""
+    """使用浏览器领取一个金币：注入token → 打开页面 → NopeCHA 自动解题 → 点击确认按钮 → 检查结果"""
     page = browser.pages[0] if browser.pages else browser.new_page()
     
     # 记录领取前的金币数
@@ -45,8 +45,13 @@ def claim_coin_with_browser(browser, token):
     resp_before = requests.get(f"{API_URL}/freeCoinsStatus", headers=headers, timeout=10)
     coins_before = resp_before.json().get('coinsClaimed', 0) if resp_before.status_code == 200 else 0
     
-    # 导航到领币页面
+    # 导航到领币页面（先注入 token 到 localStorage 实现网页认证）
     log("   📄 打开领币页面...")
+    # 先打开域名根目录（避免直接访问 /panel/earn 被重定向到 /login）
+    page.goto(f"{BOT_HOSTING_URL}/", wait_until="domcontentloaded", timeout=30000)
+    # 注入 token 到 localStorage
+    page.evaluate(f"""() => {{ localStorage.setItem('token', '{token}'); }}""")
+    # 再导航到领币页面
     page.goto(f"{BOT_HOSTING_URL}/panel/earn", wait_until="domcontentloaded", timeout=30000)
     time.sleep(3)
     
