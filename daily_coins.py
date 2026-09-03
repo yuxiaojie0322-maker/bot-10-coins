@@ -83,15 +83,35 @@ def claim_coin_with_browser(browser, token):
         
         time.sleep(1)
         
-        # 点击 "Complete the captcha to claim coins!" 按钮
+        # 点击按钮（用 JS 直接找按钮并点击，避免 is_visible 超时问题）
         try:
-            btn = page.locator("button:has-text('Complete the captcha to claim coins!')").first
-            if btn.is_visible(timeout=5000):
-                btn.click()
-                log("   ✅ 已点击确认按钮")
+            clicked = page.evaluate("""() => {
+                // 尝试多种按钮选择器
+                const selectors = [
+                    'button:has-text("Complete the captcha")',
+                    'button:has-text("Claim")',
+                    'button:has-text("claim")',
+                    'button.btn-primary',
+                    'button[type="submit"]',
+                    'button',
+                ];
+                for (const sel of selectors) {
+                    const btn = document.querySelector(sel);
+                    if (btn && !btn.disabled) {
+                        btn.click();
+                        return sel;
+                    }
+                }
+                // 如果没有按钮，尝试提交表单
+                const form = document.querySelector('form');
+                if (form) { form.submit(); return 'form-submit'; }
+                return null;
+            }""")
+            if clicked:
+                log(f"   ✅ 已点击按钮: {clicked}")
                 time.sleep(3)
             else:
-                log("   ⚠️  按钮不可见", "WARN")
+                log("   ⚠️  未找到可点击的按钮", "WARN")
         except Exception as e:
             log(f"   ⚠️  点击按钮失败: {e}", "WARN")
     else:
