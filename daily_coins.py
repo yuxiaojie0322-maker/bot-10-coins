@@ -5,6 +5,7 @@ Bot-Hosting Daily Coins Claimer (Playwright + NopeCHA 扩展版)
 在同一页面反复操作，不刷新页面（用户确认的操作节奏）
 """
 
+import json
 import os
 import sys
 import time
@@ -19,6 +20,13 @@ EXT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 # Telegram 推送配置
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "").strip()
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "").strip()
+
+
+def log(msg, level="INFO"):
+    """带时间戳的日志输出"""
+    from datetime import datetime
+    t = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{t}] [{level}] {msg}", flush=True)
 
 
 def send_tg_sync(text: str, photo: str = None):
@@ -50,10 +58,15 @@ def send_tg_sync(text: str, photo: str = None):
         log(f"[TG] ⚠️  推送异常: {e}", "WARN")
 
 
-def log(msg, level="INFO"):
-    from datetime import datetime
-    t = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{t}] [{level}] {msg}", flush=True)
+def js_escape(s: str) -> str:
+    """安全转义字符串用于 JS 字面量（防止 token 中含特殊字符导致 JS 注入）"""
+    return (
+        s.replace("\\", "\\\\")
+         .replace("'", "\\'")
+         .replace('"', '\\"')
+         .replace("\n", "\\n")
+         .replace("\r", "\\r")
+    )
 
 
 def get_token():
@@ -64,7 +77,6 @@ def get_token():
     config_path = os.path.expanduser("~/.bot_hosting_config.json")
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
-            import json
             config = json.load(f)
             return config.get("token", "").strip()
     return ""
@@ -209,7 +221,8 @@ def main():
         main_page = browser.pages[0] if browser.pages else browser.new_page()
         try:
             main_page.goto(f"{BOT_HOSTING_URL}/", wait_until="domcontentloaded", timeout=30000)
-            main_page.evaluate(f"""() => {{ localStorage.setItem('token', '{token}'); }}""")
+            # 使用 json.dumps 安全传递 token，避免 token 中的特殊字符导致 JS 注入或语法错误
+            main_page.evaluate(f"""() => {{ localStorage.setItem('token', {json.dumps(token)}); }}""")
             log("✅ 网页认证已注入 (localStorage token)")
             main_page.goto(f"{BOT_HOSTING_URL}/panel/earn", wait_until="domcontentloaded", timeout=30000)
             time.sleep(3)
@@ -323,4 +336,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        # 兜底：任何未捕获异常都推 TG 通知
+        send_tg_sync(
+            f"❌ <b>Bot-Hosting 金币任务异常</b>\n"
+            f"─────────────────\n"
+            f"错误类型: <code>{type(e).__name__}</code>\n"
+            f"错误信息: <code>{str(e)[:100]}</code>\n"
+            f"⚠️ 请检查 GitHub Actions 运行日志"
+        )
+        sys.exit(1)
