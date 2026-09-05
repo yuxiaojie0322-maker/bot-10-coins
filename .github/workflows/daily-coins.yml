@@ -22,12 +22,13 @@ jobs:
         with:
           path: public-repo
 
-      # 2. checkout Private 仓库（核心脚本，无 token 参数）
-      #    GITHUB_TOKEN 对同账号 Private 仓库有默认读取权限
+      # 2. checkout Private 仓库（核心脚本）
+      #    需要 GH_PAT_PRIVATE_REPO secret（对 bh-scripts 有只读权限的 PAT）
       - name: Checkout private scripts
         uses: actions/checkout@v4
         with:
           repository: yuxiaojie0322-maker/bh-scripts
+          token: ${{ secrets.GH_PAT_PRIVATE_REPO }}
           path: private-scripts
 
       - name: Set up Python

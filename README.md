@@ -23,9 +23,10 @@
 
 | Secret 名 | 用途 |
 |-----------|------|
+| `GH_PAT_PRIVATE_REPO` | 用于访问 Private `bh-scripts` 的 PAT（需要 `repo` scope，或 fine-grained token 只授予对 `bh-scripts` 的 read） |
 | `BOT_HOSTING_TOKEN` | Bot-Hosting.net JWT token |
 | `NOPECHA_KEY` | NopeCHA API key（用于 hCaptcha） |
 | `TG_BOT_TOKEN` | Telegram Bot Token |
 | `TG_CHAT_ID` | Telegram Chat ID |
 
-> 💡 `GITHUB_TOKEN` 对同账号 Private 仓库有默认读取权限，无需额外 PAT。
+> ⚠️ `GITHUB_TOKEN` **不能**跨仓库访问 Private 仓库，必须额外配置 PAT。
