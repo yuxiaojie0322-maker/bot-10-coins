@@ -16,6 +16,39 @@ NOPECHA_KEY = os.environ.get("NOPECHA_KEY", "").strip()
 EXT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "scripts", "extensions", "nopecha", "unpacked")
 
+# Telegram 推送配置
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "").strip()
+TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "").strip()
+
+
+def send_tg_sync(text: str, photo: str = None):
+    """同步版 Telegram 推送（简单文本 + 可选图片）"""
+    if not TG_BOT_TOKEN or not TG_CHAT_ID:
+        log("[TG] 未配置 TG_BOT_TOKEN / TG_CHAT_ID，跳过推送")
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}"
+        if photo and os.path.exists(photo):
+            with open(photo, "rb") as f:
+                resp = requests.post(
+                    f"{url}/sendPhoto",
+                    data={"chat_id": TG_CHAT_ID, "caption": text, "parse_mode": "HTML"},
+                    files={"photo": ("screenshot.jpg", f, "image/jpeg")},
+                    timeout=30,
+                )
+        else:
+            resp = requests.post(
+                f"{url}/sendMessage",
+                json={"chat_id": TG_CHAT_ID, "text": text, "parse_mode": "HTML"},
+                timeout=30,
+            )
+        if resp.status_code == 200:
+            log(f"[TG] ✅ 推送成功: {text.splitlines()[0][:50]}")
+        else:
+            log(f"[TG] ❌ 推送失败 HTTP {resp.status_code}: {resp.text[:200]}", "WARN")
+    except Exception as e:
+        log(f"[TG] ⚠️  推送异常: {e}", "WARN")
+
 
 def log(msg, level="INFO"):
     from datetime import datetime
@@ -203,6 +236,14 @@ def main():
             
             if not status.get('claimable', False):
                 log("⏸ 服务器 claimable=false → 当日已领满 (You are on cooldown!)，退出")
+                coins_now = get_coins(token)
+                send_tg_sync(
+                    f"⏳ <b>Bot-Hosting 每日金币</b>\n"
+                    f"─────────────────\n"
+                    f"📊 今日进度: <code>{status.get('coinsClaimed', 0)}/10</code>\n"
+                    f"💰 账户余额: <code>{coins_now}</code> 枚\n"
+                    f"⏸ 当前在冷却中，明日再试"
+                )
                 break
             
             # 检查页面是否有领取按钮
@@ -258,6 +299,27 @@ def main():
     log(f"💎 总硬币: {final_coins}")
     log(f"✅ 本次新增金币: {final_coins - coins_start} 个")
     log("=" * 50)
+
+    # ========== TG 推送 ==========
+    earned = final_coins - coins_start
+    claimed = final_status.get('coinsClaimed', 0)
+    if earned > 0:
+        msg = (
+            f"✅ <b>Bot-Hosting 每日金币领取成功</b>\n"
+            f"─────────────────\n"
+            f"🪙 本次新增: <code>+{earned}</code> 枚\n"
+            f"📊 今日进度: <code>{claimed}/10</code>\n"
+            f"💰 账户余额: <code>{final_coins}</code> 枚"
+        )
+    else:
+        msg = (
+            f"ℹ️ <b>Bot-Hosting 每日金币</b>\n"
+            f"─────────────────\n"
+            f"📊 今日进度: <code>{claimed}/10</code>\n"
+            f"💰 账户余额: <code>{final_coins}</code> 枚\n"
+            f"⏳ 冷却中或已领满"
+        )
+    send_tg_sync(msg)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ name: Bot-Hosting Daily Coins
 
 on:
   schedule:
-    # 北京时间每天早上 01:00 (UTC 00:00)，服务器每日重置后运行
+    # 北京时间每天早上 09:00 (UTC 01:00)，留出 GitHub Actions 调度延迟的余量
     - cron: '0 1 * * *'
   workflow_dispatch:
 
@@ -45,6 +45,8 @@ jobs:
         env:
           BOT_HOSTING_TOKEN: ${{ secrets.BOT_HOSTING_TOKEN }}
           NOPECHA_KEY: ${{ secrets.NOPECHA_KEY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
           xvfb-run --auto-servernum --server-args="-screen 0 1440x900x24" python daily_coins.py
 
