@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: read
-  actions: write
+  actions: read
 
 jobs:
   claim-coins:
@@ -16,8 +16,19 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout code
+      # 1. checkout 当前 Public 仓库（仅用于 workflow 文件）
+      - name: Checkout public repo
         uses: actions/checkout@v4
+        with:
+          path: public-repo
+
+      # 2. checkout Private 仓库（核心脚本，无 token 参数）
+      #    GITHUB_TOKEN 对同账号 Private 仓库有默认读取权限
+      - name: Checkout private scripts
+        uses: actions/checkout@v4
+        with:
+          repository: yuxiaojie0322-maker/bh-scripts
+          path: private-scripts
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,9 +51,9 @@ jobs:
       - name: Download NopeCHA extension
         run: |
           echo "下载 NopeCHA 插件..."
-          mkdir -p scripts/extensions/nopecha/unpacked
+          mkdir -p private-scripts/scripts/extensions/nopecha/unpacked
           curl -fLo nopecha.zip https://github.com/NopeCHALLC/nopecha-extension/releases/latest/download/chromium.zip
-          unzip -q -o nopecha.zip -d scripts/extensions/nopecha/unpacked
+          unzip -q -o nopecha.zip -d private-scripts/scripts/extensions/nopecha/unpacked
           echo "✅ 插件准备就绪"
 
       - name: Run daily coins claimer (Xvfb 虚拟屏幕)
@@ -52,6 +63,7 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
+          cd private-scripts
           xvfb-run --auto-servernum --server-args="-screen 0 1440x900x24" python daily_coins.py
 
       - name: Delete old workflow runs
